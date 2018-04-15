@@ -19,7 +19,7 @@ char* checkArgs(int argc, char **argv) {
 
 void increment_mac_addr (uint8_t *addr ){
   for (int i = MAC_ADDR_MAX_INDEX; i > -1; i--) {
-    if (addr[i] != MAX_OCTET) { // 0xff aka 255
+    if (addr[i] != MAX_OCTET_HEX) { // 0xff aka 255
       addr[i]++;
       return;
     }
@@ -39,7 +39,8 @@ struct in_addr* str_to_ip(const char* addr){
   if (tmp == NULL) {
     err("malloc: failed to create (struct in_addr*)", ERR, 0);
   }
-  if ((int e = inet_pton(AF_INET, addr, tmp)) != 1) {
+  int e;
+  if ((e = inet_pton(AF_INET, addr, tmp)) != 1) {
     err("inet_pton: Failed to convert ip adr", e, 0);
   }
   return tmp;
@@ -74,28 +75,18 @@ int main(int argc, char** argv) {
   interface.sll_pkttype = PACKET_BROADCAST; // Use broadcast packet
   interface.sll_protocol = ETH_P_802_3;
 
-
- struct ip {
- 	u_char	ip_tos;			/* type of service */
- 	short	ip_len;			/* total length */
- 	u_short	ip_id;			/* identification */
- 	short	ip_off;			/* fragment offset field */
- 	u_char	ip_ttl;			/* time to live */
- 	u_char	ip_p;			/* protocol */
- 	u_short	ip_sum;			/* checksum */
- 	struct	in_addr ip_src,ip_dst;	/* source and dest address */
- };
-
   struct ip header;
   header.ip_v = 4;
   header.ip_hl = 5;
+  header.ip_tos = 0;
+  header.ip_len =
   header.ip_ttl = IP4_MAX_TTL;
-  header.ip_src = "0.0.0.0";
-  header.ip_dst = IP4_BROADCAST;
-  header.ip_p = IP4_PRT_UDP;
+  header.ip_p = IPPROTO_UDP;
+  header.ip_src = *str_to_ip("0.0.0.0");
+  header.ip_dst = *str_to_ip(IP4_BROADCAST);
   //uint8_t src_mac_addr[6];  // set dst mac for broadcast
   // int sd = 0;
-  // if ((sd = socket (PF_PACKET, SOCK_RAW, htons (ETH_P_ALL))) < 0) {
+  // if ((sd = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW) < 0) {
   //   perror ("socket() failed to get socket descriptor for using ioctl() ");
   //   exit (EXIT_FAILURE);
   // }
