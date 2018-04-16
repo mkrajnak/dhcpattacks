@@ -24,8 +24,7 @@ using namespace std;
 #define MAC_ADDR_MAX_INDEX 5    // MAXIMUM MAC ADDRESS ARRAY INDEX
 #define MAC_ADDR_LEN 6          // MAC ADDRESS LENGTH
 
-
-#define DHCP_BUFFER_SIZE 512
+#define DHCP_BUFFER_SIZE 250
 #define ETH_HEADER_LEN 14
 #define IP4_HEADER_LEN 20
 #define UDP_HEADER_LEN 8
