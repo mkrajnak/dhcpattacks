@@ -1,11 +1,15 @@
 CC=g++
 CXXFLAGS=-O2 -g -Wall -Wextra -pedantic -std=c++11
 LDFLAGS=-Wl,-rpath=/usr/local/lib/gcc49/
-SERVER=pds-dhcpstarve.cpp pds-dhcpstarve.h
-all: pds-dhcpstarve
+STARVE=pds-dhcpstarve.cpp pds-dhcpstarve.h
+SERVER=pds-dhcprogue.cpp pds-dhcprogue.h
+all: pds-dhcpstarve pds-dhcprogue
 
-dserver: $(SERVER)
-	$(CC) $(CXXFLAGS) $(LDFLAGS) $(SERVER) -o $@
+starve: $(STARVE)
+	$(CC) $(CXXFLAGS) $(LDFLAGS) $(STARVE) -o pds-dhcpstarve
+
+rogue: $(SERVER)
+	$(CC) $(CXXFLAGS) $(LDFLAGS) $(SERVER) -o pds-dhcprogue
+
 clean:
-	rm -f pds-dhcpstarve
-
+	rm -f pds-dhcpstarve pds-dhcprogue
