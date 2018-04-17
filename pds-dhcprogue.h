@@ -34,7 +34,9 @@ const int DHCP_RELEASE = 7;
 const int DHCP_INFORM	 = 8;
 
 const int BUFSIZE = 512;
-const int DHCP_SRV_PORT = 67;
+const int DHCP_DST_PORT = 68;
+const int DHCP_SRC_PORT = 67;
+
 const char * IP4_BROADCAST = "255.255.255.255";
 
 using namespace std;
@@ -54,7 +56,7 @@ struct ip_pool{
   uint32_t ip_dns;
   string domain;
   string lease_time;
-  vector <uint32_t> pool;
+  vector <uint32_t> ip_pool;
   vector <struct pool_item> leased_list;
 }ip_pool;
 

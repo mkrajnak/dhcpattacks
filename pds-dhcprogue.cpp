@@ -48,7 +48,18 @@ char* ip_to_str(uint32_t addr){
   return buffer;
 }
 
-void handle_pool(struct ip_pool* p, char* arg) {
+
+void fill_range(struct ip_pool* p) {
+  for (uint32_t i = p->ip_first; i <= p->ip_last; i=htonl(htonl(i)+1)) {
+    p->ip_pool.push_back(i);
+  }
+  if (p->ip_pool.empty()) {
+    err("Empty pool of free ip adresses", ERR, 0);
+  }
+  p->ip_next = p->ip_first;   // assign first usable ip address
+}
+
+void parse_pool(struct ip_pool* p, char* arg) {
   int delim = 0;
   for (size_t i = 0; i < strlen(arg); i++) {
     if (arg[i] == '-') {  // find delimiter so we know where to split
@@ -69,10 +80,11 @@ void handle_pool(struct ip_pool* p, char* arg) {
   // convert the arrays to ip addresses and assign them to pool
   p->ip_first = str_to_ip(start);
   p->ip_last = str_to_ip(end);
-  p->ip_next = p->ip_first;   // assign first usable ip address
   // memory is precious
   free(start);
   free(end);
+  // fill the pool with ip addreses
+  fill_range(p);
 }
 
 struct ip_pool* check_args(int argc, char **argv){
@@ -88,7 +100,7 @@ struct ip_pool* check_args(int argc, char **argv){
         p->interface = string(optarg);
         break;
       case 'p':
-        handle_pool(p, optarg);
+        parse_pool(p, optarg);
         break;
       case 'g':
         p->ip_gateway = str_to_ip(optarg);
@@ -110,9 +122,7 @@ struct ip_pool* check_args(int argc, char **argv){
 }
 
 int main(int argc, char **argv) {
-
-  struct ip_pool* pool = check_args(argc, argv);
-
-  free(pool);
+  struct ip_pool* p = check_args(argc, argv);
+  free(p);
   return 0;
 }
