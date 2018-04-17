@@ -1,15 +1,5 @@
 #include "pds-dhcprogue.h"
 
-struct params{
-  string interface;
-  uint32_t ip_pool_start;
-  uint32_t ip_pool_end;
-  uint32_t ip_gateway;
-  uint32_t ip_dns_server;
-  string domain;
-  string lease_time;
-}params;
-
 void help(){
   printf("HELP\n");
 }
@@ -30,7 +20,9 @@ void check_null(void * lel){
   if (lel == NULL) err("Memory allocation failure", ERR, 0);
 }
 
-
+/**
+* Check if string really contains ip address and convert to uint32_t
+*/
 uint32_t str_to_ip(const char* addr){
   struct in_addr tmp;
   if ((inet_pton(AF_INET, addr, &tmp)) != 1) {
@@ -39,13 +31,16 @@ uint32_t str_to_ip(const char* addr){
   return tmp.s_addr;
 }
 
+/**
+* Check ip address and convert to c_string
+*/
 char* ip_to_str(uint32_t addr){
   char* buffer = (char *)malloc(INET_ADDRSTRLEN);
   check_null(buffer);
-
+  // init struct required by init_ntop
   struct in_addr tmp;
   tmp.s_addr = addr;
-
+  // check address and convert to string
   if (inet_ntop(AF_INET, &tmp, buffer, INET6_ADDRSTRLEN) == NULL) {
     free(buffer);
     err("inet_ntop faild", ERR, 0);
@@ -53,34 +48,35 @@ char* ip_to_str(uint32_t addr){
   return buffer;
 }
 
-void handle_pool(struct params* p, char* arg) {
+void handle_pool(struct ip_pool* p, char* arg) {
   int delim = 0;
   for (size_t i = 0; i < strlen(arg); i++) {
-    if (arg[i] == '-') {
+    if (arg[i] == '-') {  // find delimiter so we know where to split
       delim = i;
       break;
     }
   }
-  if (!delim) {
+  if (!delim) { // make sure that delimiter was parsed
     err("Could not parse pool", ERR, 1);
   }
   char* start = (char*)malloc(delim);
   check_null(start);
   char* end = (char*)malloc(strlen(arg)-delim-1);
   check_null(end);
-
+  // divide andresses and copy them to own arrays
   memcpy(start, arg, delim);
   memcpy(end, arg+delim+1, strlen(arg)-delim);
-
-  p->ip_pool_start = str_to_ip(start);
-  p->ip_pool_start = str_to_ip(end);
-
+  // convert the arrays to ip addresses and assign them to pool
+  p->ip_first = str_to_ip(start);
+  p->ip_last = str_to_ip(end);
+  p->ip_next = p->ip_first;   // assign first usable ip address
+  // memory is precious
   free(start);
   free(end);
 }
 
-struct params* check_args(int argc, char **argv){
-  struct params* p = (struct params*) malloc(sizeof(struct params));
+struct ip_pool* check_args(int argc, char **argv){
+  struct ip_pool* p = (struct ip_pool*) malloc(sizeof(struct ip_pool));
   check_null(p);
   if (argc != 13) {
     err("Arguments not recognized", ERR, 1);
@@ -98,7 +94,7 @@ struct params* check_args(int argc, char **argv){
         p->ip_gateway = str_to_ip(optarg);
         break;
       case 'n':
-        p->ip_dns_server = str_to_ip(optarg);
+        p->ip_dns = str_to_ip(optarg);
         break;
       case 'd':
         p->domain = string(optarg);
@@ -114,10 +110,9 @@ struct params* check_args(int argc, char **argv){
 }
 
 int main(int argc, char **argv) {
-  uint32_t lel = str_to_ip(IP4_BROADCAST);
-  char * lel_to_string = ip_to_str(lel);
-  printf("%s\n", lel_to_string);
-  check_args(argc, argv);
-  free(lel_to_string);
+
+  struct ip_pool* pool = check_args(argc, argv);
+
+  free(pool);
   return 0;
 }

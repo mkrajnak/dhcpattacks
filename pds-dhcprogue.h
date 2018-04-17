@@ -38,4 +38,25 @@ const int DHCP_SRV_PORT = 67;
 const char * IP4_BROADCAST = "255.255.255.255";
 
 using namespace std;
+
+struct pool_item{
+  string mac_addr;
+  uint32_t ip_addr;
+  time_t lease_expiration;
+}pool_item;
+
+struct ip_pool{
+  string interface;
+  uint32_t ip_first;
+  uint32_t ip_last;
+  uint32_t ip_next;
+  uint32_t ip_gateway;
+  uint32_t ip_dns;
+  string domain;
+  string lease_time;
+  vector <uint32_t> pool;
+  vector <struct pool_item> leased_list;
+}ip_pool;
+
+
 #endif
