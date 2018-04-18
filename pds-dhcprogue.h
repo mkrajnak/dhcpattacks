@@ -52,14 +52,18 @@ const int DHCP_INFORM	 = 8;
 
 #define DHCP_DST_PORT 68
 #define DHCP_SRC_PORT 67
-#define DHCP_BUF_SIZE 512
 #define ETH_BUF_SIZE 1024
+#define DHCP_BUFFER_SIZE 400
+
+#define ETH_HEADER_LEN 14
+#define IP4_HEADER_LEN 20
+#define UDP_HEADER_LEN 8
+#define MAC_ADDR_LEN 6
 
 const char * IP4_BROADCAST = "255.255.255.255";
 
-
 struct pool_item{
-  string mac_addr;
+  uint8_t mac_addr[MAC_ADDR_LEN];
   uint32_t ip_addr;
   time_t lease_expiration;
 }pool_item;
@@ -68,7 +72,7 @@ struct ip_pool{
   string interface;
   uint32_t int_ip_address;
   uint32_t int_ip_netmask;
-  uint8_t int_mac_address[6];
+  uint8_t int_mac_address[MAC_ADDR_LEN];
   uint32_t ip_first;
   uint32_t ip_last;
   uint32_t ip_next;

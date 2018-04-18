@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
     memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
     // fire
     int sent = 0;
-    if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *) &interface, sizeof (interface))) <= 0) {
+    if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
       err("sendto() failed", sent, 0);
     }
   }
