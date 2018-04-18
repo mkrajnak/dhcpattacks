@@ -3,35 +3,37 @@
 
 #include <fstream>
 #include <stdio.h>
-#include <regex>
 #include <cstdlib>
 #include <iostream>
 #include <fstream>
+#include <vector>
 #include <string.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <limits.h>
 #include <signal.h>
-#include <time.h>
 #include <algorithm>
 #include <iostream>
 #include <getopt.h>
 #include <cstring>
-#include <sys/socket.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <time.h>
+#include <sys/ioctl.h>
 #include <stdlib.h>
+
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <ifaddrs.h>
+#include <stdio.h>
+#include <netdb.h>
 
 using namespace std;
 
@@ -64,6 +66,9 @@ struct pool_item{
 
 struct ip_pool{
   string interface;
+  uint32_t int_ip_address;
+  uint32_t int_ip_netmask;
+  uint8_t int_mac_address[6];
   uint32_t ip_first;
   uint32_t ip_last;
   uint32_t ip_next;

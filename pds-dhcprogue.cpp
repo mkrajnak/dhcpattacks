@@ -121,8 +121,10 @@ struct ip_pool* check_args(int argc, char **argv){
   return p;
 }
 
-void send_offer(unsigned char *msg);
 void send_ack(unsigned char *msg);
+void send_offer(unsigned char *msg, struct sockaddr_ll intfc){
+
+}
 
 void dhcp(struct sockaddr_ll intfc) {
   unsigned char msg[DHCP_BUF_SIZE];
@@ -135,6 +137,7 @@ void dhcp(struct sockaddr_ll intfc) {
     switch (msg[242]) {
       case (int) DHCP_DISCOVER:
         printf("DISCOVER\n");
+        send_offer(msg, intfc);
         break;
       case (int) DHCP_REQUEST:
         //send_ack(msg);
@@ -146,6 +149,29 @@ void dhcp(struct sockaddr_ll intfc) {
     }
     bzero(msg,DHCP_BUF_SIZE);
   }
+}
+
+void get_interface_info(){
+  // determine device mac adress required fo L2 header
+  struct ifreq ifr;
+  bzero(&ifr, sizeof(ifr));
+  memcpy(ifr.ifr_name, p->interface.c_str(), strlen(p->interface.c_str()));
+  // get MAC address
+  if(ioctl(send_socket, SIOCGIFHWADDR, &ifr) < 0){
+    err("ioctl failed, cannot determine interface's MAC address", ERR, 0);
+  }
+  // same for device ip address for L3 header - ip address
+  if(ioctl(send_socket, SIOCGIFADDR, &ifr) < 0){
+    err("ioctl failed, cannot determine interface's IP address", ERR, 0);
+  }
+  // get network mask
+  if (ioctl(send_socket, SIOCGIFNETMASK, &ifr) < 0){
+    err("ioctl failed, cannot determine interface's network mask", ERR, 0);
+  }
+  // collect the information for future use
+  memcpy(p->int_mac_address, ifr.ifr_hwaddr.sa_data, 6 * sizeof(uint8_t));
+  p->int_ip_address = str_to_ip(inet_ntoa((((struct sockaddr_in *)&(ifr.ifr_addr))->sin_addr)));
+  p->int_ip_netmask = str_to_ip(inet_ntoa((((struct sockaddr_in *)&(ifr.ifr_netmask))->sin_addr)));
 }
 
 void server_start() {
@@ -162,16 +188,21 @@ void server_start() {
   if((bind(listen_socket, (struct sockaddr *)&srv, sizeof(srv))) != 0) {
     err ("Failed to bind listen socket", listen_socket, 0);
   }
-  // setup second raw socket for sending, so we can use L2 unicast
-  if ((send_socket = socket (PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+  // // setup second raw socket for sending, so we can use L2 unicast
+  if ((send_socket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
     err ("Failed to create SOCK_RAW", send_socket, 0);
   }
+  // setup interface, see "man packet"
   struct sockaddr_ll interface;
-  if ((interface.sll_ifindex = if_nametoindex(p->interface.c_str())) == 0) {
+  bzero(&interface, sizeof(interface));
+  // get interface index
+  if((interface.sll_ifindex = if_nametoindex(p->interface.c_str())) == 0){
     err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
   }
-  interface.sll_family = AF_PACKET;   // setup interface, see "man packet"
+  interface.sll_family = AF_PACKET;
   interface.sll_protocol = htons(ETH_P_ALL);
+  // get MAC address, ip_address and netmask
+  get_interface_info();
   // all set, continue
   dhcp(interface);
 }
