@@ -121,8 +121,72 @@ struct ip_pool* check_args(int argc, char **argv){
   return p;
 }
 
+void send_offer(unsigned char *msg);
+void send_ack(unsigned char *msg);
+
+void dhcp(struct sockaddr_ll intfc) {
+  unsigned char msg[DHCP_BUF_SIZE];
+  bzero(msg, DHCP_BUF_SIZE);
+  socklen_t length = sizeof(intfc);
+
+  int rcvd = 0; // receive data and decive what to do
+  while((rcvd = recvfrom(listen_socket, msg, DHCP_BUF_SIZE, 0, (struct sockaddr *)&intfc, &length)) >= 0)
+  {
+    switch (msg[242]) {
+      case (int) DHCP_DISCOVER:
+        printf("DISCOVER\n");
+        break;
+      case (int) DHCP_REQUEST:
+        //send_ack(msg);
+        break;
+      // case (int) DHCP_RELEASE:
+      //   release(msg);
+        break;
+      default: break;
+    }
+    bzero(msg,DHCP_BUF_SIZE);
+  }
+}
+
+void server_start() {
+  // lets create server socket so we don't have to bother with parsing headers
+  if((listen_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    err ("Failed to create SOCK_DGRAM", listen_socket, 0);
+  }
+  struct sockaddr_in srv;
+  bzero(&srv, sizeof(srv));
+  srv.sin_family = AF_INET;
+  srv.sin_addr.s_addr = INADDR_ANY;     // dont care
+  srv.sin_port = htons(DHCP_SRC_PORT);  // 67
+
+  if((bind(listen_socket, (struct sockaddr *)&srv, sizeof(srv))) != 0) {
+    err ("Failed to bind listen socket", listen_socket, 0);
+  }
+  // setup second raw socket for sending, so we can use L2 unicast
+  if ((send_socket = socket (PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+    err ("Failed to create SOCK_RAW", send_socket, 0);
+  }
+  struct sockaddr_ll interface;
+  if ((interface.sll_ifindex = if_nametoindex(p->interface.c_str())) == 0) {
+    err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
+  }
+  interface.sll_family = AF_PACKET;   // setup interface, see "man packet"
+  interface.sll_protocol = htons(ETH_P_ALL);
+  // all set, continue
+  dhcp(interface);
+}
+
+void cleanup() {
+  if (p)              free(p);
+  if (send_socket)    close(send_socket);
+  if (listen_socket)  close(send_socket);
+}
+
 int main(int argc, char **argv) {
-  struct ip_pool* p = check_args(argc, argv);
-  free(p);
+  p = check_args(argc, argv);
+  srand(time(NULL));
+  server_start();
+  // TO DO sighandler
+  cleanup();
   return 0;
 }

@@ -19,6 +19,21 @@
 #include <signal.h>
 #include <time.h>
 #include <algorithm>
+#include <iostream>
+#include <getopt.h>
+#include <cstring>
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <net/if.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <time.h>
+#include <stdlib.h>
+
+using namespace std;
 
 #define ERR -1
 
@@ -33,13 +48,13 @@ const int DHCP_NAK = 6;
 const int DHCP_RELEASE = 7;
 const int DHCP_INFORM	 = 8;
 
-const int BUFSIZE = 512;
-const int DHCP_DST_PORT = 68;
-const int DHCP_SRC_PORT = 67;
+#define DHCP_DST_PORT 68
+#define DHCP_SRC_PORT 67
+#define DHCP_BUF_SIZE 512
+#define ETH_BUF_SIZE 1024
 
 const char * IP4_BROADCAST = "255.255.255.255";
 
-using namespace std;
 
 struct pool_item{
   string mac_addr;
@@ -60,5 +75,8 @@ struct ip_pool{
   vector <struct pool_item> leased_list;
 }ip_pool;
 
-
+// Global variables for cleanup purposes
+int send_socket = 0;
+int listen_socket = 0;
+struct ip_pool* p;
 #endif
