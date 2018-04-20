@@ -253,7 +253,7 @@ void release(unsigned char * buffer){
     return;
   }
   uint8_t mac[MAC_ADDR_LEN];
-  memcpy(&mac, &buffer[28], MAC_ADDR_LEN * uint8_t)
+  memcpy(&mac, &buffer[28], MAC_ADDR_LEN * sizeof(uint8_t));
   printf("> Releasing MAC Address : %02x:%02x:%02x:%02x:%02x:%02x\n",
   (unsigned char) mac[0],
   (unsigned char) mac[1],
@@ -264,11 +264,9 @@ void release(unsigned char * buffer){
   vector<struct pool_item>::iterator it;
   for (it = p->leased_list.begin(); it != p->leased_list.end(); ++it){
     if (memcmp(it->mac_addr, mac, MAC_ADDR_LEN*sizeof(uint8_t)) == 0){
-      printf("MAC found in leases, .... erasing lease\n");
-      return;
       p->ip_pool.push_back(it->ip_addr);
       p->leased_list.erase(it);
-      break;
+      return;
     }
   }
 }
@@ -369,14 +367,13 @@ void dhcp() {
         break;
       case (int) DHCP_REQUEST:
         send(msg, DHCP_ACK);
-        release(msg);
         break;
       case (int) DHCP_RELEASE:
         release(msg);
         break;
       default: break;
     }
-    bzero(msg,DHCP_BUFFER_SIZE);
+    bzero(&msg,DHCP_BUFFER_SIZE);
   }
 }
 /**
