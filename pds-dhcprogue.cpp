@@ -59,7 +59,7 @@ void fill_range(struct ip_pool* p) {
   p->ip_next = p->ip_first;   // assign first usable ip address
 }
 
-void parse_pool(struct ip_pool* p, char* arg) {
+void parse_pool(char* arg) {
   int delim = 0;
   for (size_t i = 0; i < strlen(arg); i++) {
     if (arg[i] == '-') {  // find delimiter so we know where to split
@@ -70,13 +70,14 @@ void parse_pool(struct ip_pool* p, char* arg) {
   if (!delim) { // make sure that delimiter was parsed
     err("Could not parse pool", ERR, 1);
   }
-  char* start = (char*)malloc(delim);
+  char* start = (char*)malloc(delim+1);
   check_null(start);
   char* end = (char*)malloc(strlen(arg)-delim-1);
   check_null(end);
   // divide andresses and copy them to own arrays
-  memcpy(start, arg, delim);
-  memcpy(end, arg+delim+1, strlen(arg)-delim);
+  strncpy(start, arg, delim);
+  start[delim] = '\0';
+  strncpy(end, arg+delim+1, strlen(arg)-delim);
   // convert the arrays to ip addresses and assign them to pool
   p->ip_first = str_to_ip(start);
   p->ip_last = str_to_ip(end);
@@ -87,9 +88,10 @@ void parse_pool(struct ip_pool* p, char* arg) {
   fill_range(p);
 }
 
-struct ip_pool* check_args(int argc, char **argv){
-  struct ip_pool* p = (struct ip_pool*) malloc(sizeof(struct ip_pool));
+void check_args(int argc, char **argv){
+  p = (struct ip_pool*) malloc(sizeof(struct ip_pool));
   check_null(p);
+
   if (argc != 13) {
     err("Arguments not recognized", ERR, 1);
   }
@@ -97,10 +99,12 @@ struct ip_pool* check_args(int argc, char **argv){
   while ((c = getopt (argc, argv, "i:p:g:n:d:l:")) != -1){
     switch (c) {
       case 'i':
-        p->interface = string(optarg);
+        p->interface = (char*) malloc(sizeof(optarg));
+        check_null(p->interface);
+        strcpy(p->interface, optarg);
         break;
       case 'p':
-        parse_pool(p, optarg);
+        parse_pool(optarg);
         break;
       case 'g':
         p->ip_gateway = str_to_ip(optarg);
@@ -109,16 +113,17 @@ struct ip_pool* check_args(int argc, char **argv){
         p->ip_dns = str_to_ip(optarg);
         break;
       case 'd':
-        p->domain = string(optarg);
+        p->domain = (char*) malloc(sizeof(optarg));
+        check_null(p->domain);
+        strcpy(p->domain, optarg);
         break;
       case 'l':
-        p->lease_time = string(optarg);
+        p->lease_time = 0; // (string(optarg));
         break;
       default:
         break;
     }
   }
-  return p;
 }
 /**
 * Compute the checksum, inspired by rfc1071 and
@@ -177,56 +182,83 @@ struct ip* get_ip_header(uint32_t ip_dest){
   checksum(hdr,IP4_HEADER_LEN);
   return hdr;
 }
-void send_ack(unsigned char *msg);
 
 uint32_t lease_ip(uint8_t* dst_mac_addr){
+  if (p->ip_next == 0) {
+    fprintf(stderr, "%s\n","Empty pool, cannot perform lease");
+    return 0;
+  }
   struct pool_item item;   // write to lease list
   memcpy(item.mac_addr, dst_mac_addr, MAC_ADDR_LEN);
   item.ip_addr = p->ip_next;
   // TODO item.lease_end = mktime(timeinfo);
   p->leased_list.insert(p->leased_list.begin(), item);
-  // if (print) {
-  //   printf("%s %s \n", chaddr_str, ip_to_str(item.ip_addr));
-  // }
+
   // Remove taken address and prepare nectone
-  p->ip_pool.erase(remove(p->ip_pool.begin(), p->ip_pool.end(), p->ip_next));
-  p->ip_next = p->ip_pool.front();
+  p->ip_pool.erase(find(p->ip_pool.begin(), p->ip_pool.end(), p->ip_next));
+  // Check if ot is the last available address
+  if (p->ip_pool.empty())
+    p->ip_next = 0;
+  else
+    p->ip_next = p->ip_pool.front();
+  printf("Leasing: %s\n", ip_to_str(item.ip_addr));
   return item.ip_addr;
 }
 
-void write_ip(unsigned char *buffer, uint32_t ip){
-  for (int i = 0; i < 4; i++) {
-    buffer[i] = (ip >> (i*8)) & 0xFF;
+uint32_t get_client_ip(uint8_t *dst_mac_addr, int extend){
+  if (p->leased_list.empty()) {
+    return lease_ip(dst_mac_addr);
   }
+  vector<struct pool_item>::iterator it;
+  for (it = p->leased_list.begin(); it != p->leased_list.end(); ++it){
+    if (memcmp(it->mac_addr, dst_mac_addr, MAC_ADDR_LEN*sizeof(uint8_t)) == 0){
+    printf("Acking: %s\n", ip_to_str(it->ip_addr));
+    if (extend) {
+      // time_t now = time(0);
+      // time_t now_plus_50_seconds = now + 50;
+    }
+    return it->ip_addr;
+    }
+  }
+  return lease_ip(dst_mac_addr); // not found
 }
 
-void make_offer(unsigned char* msg, uint32_t client_ip){
+void make_dhcp_reply(unsigned char* msg, uint32_t client_ip, const int msg_type){
   // change only required parts of received DHCP message
   msg[0] = (int) 2;                // DHCP REPLY
-  write_ip(&msg[16], client_ip);
-  write_ip(&msg[20], p->int_ip_address);
+  memcpy(&msg[16], &client_ip, IP_ADDR_LEN);
+  memcpy(&msg[20], &p->ip_gateway, IP_ADDR_LEN);
   msg[240] = (int) 53;             // OPTION defining dhcp message type
   msg[241] = (int) 1;              // length of ^
-  msg[242] = (int) DHCP_OFFER;     // 1 == discover
-  msg[243] = (int) 55;             // OPTION Requested items
-  msg[244] = (int) 4;              // length of ^
-  msg[245] = (int) 1;              // Subnet mask
-  msg[246] = (int) 28;             // Broadcast
-  msg[247] = (int) 3;              // Router
-  msg[248] = (int) 15;             // Domain name
-  msg[243] = (int) 255;            //end
+  msg[242] = (int) msg_type;       // OFFER or ACK
+  msg[243] = (int) 51;             // lease time
+  msg[244] = (int) 4;
+  msg[245] = (int) 0;
+  msg[246] = (int) 0;
+  msg[247] = (int) 0x0e;
+  msg[248] = (int) 0x10;
+  msg[249] = (int) 54;              // next server ip
+  msg[250] = (int) 4;
+  memcpy(&msg[251], &p->ip_gateway, IP_ADDR_LEN);
+  msg[255] = (int) 6;               // DNS server ip
+  msg[256] = (int) 4;
+  memcpy(&msg[257], &p->ip_gateway, IP_ADDR_LEN);
+  msg[261] = (int) 15;              // DNS server ip
+  msg[262] = (int) strlen(p->domain);
+  strcpy((char*)&msg[263], p->domain);
+  msg[263 + strlen(p->domain)] = (int) 255; //end
 }
 
 
-void offer(unsigned char *msg){
+void send(unsigned char *msg, const int msg_type){
   uint8_t dst_mac_addr[MAC_ADDR_LEN];
   memcpy(dst_mac_addr, &msg[28], MAC_ADDR_LEN);
 
   struct sockaddr_ll interface;
   // setup interface, see "man packet"
-  bzero(&interface, sizeof(interface));
+  bzero(&interface, sizeof(struct sockaddr_ll));
   // get interface index
-  if((interface.sll_ifindex = if_nametoindex(p->interface.c_str())) == 0){
+  if((interface.sll_ifindex = if_nametoindex(p->interface)) == 0){
     err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
   }
   interface.sll_family = AF_PACKET;   // setup interface, see "man packet"
@@ -243,7 +275,11 @@ void offer(unsigned char *msg){
   eth_frame[12] = 0x08; // ETH_P_IP value
   eth_frame[13] = 0x00;
   // L2 ends here ^ Add IP (L3) and UDP (L4) headers next...
-  uint32_t client_ip_addr = lease_ip(dst_mac_addr);
+  uint32_t client_ip_addr = 0;
+  if(msg_type == DHCP_OFFER)
+    client_ip_addr = lease_ip(dst_mac_addr); // make an actual lease
+  else
+    client_ip_addr = get_client_ip(dst_mac_addr, 0);
 
   struct ip* ip_header = get_ip_header(client_ip_addr);
   struct udphdr* udp_header = get_udp_header();
@@ -251,7 +287,7 @@ void offer(unsigned char *msg){
   memcpy(eth_frame + ETH_HEADER_LEN, ip_header, IP4_HEADER_LEN * sizeof(uint8_t));
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN, udp_header, UDP_HEADER_LEN * sizeof(uint8_t));
 
-  make_offer(msg, client_ip_addr);
+  make_dhcp_reply(msg, client_ip_addr, msg_type);
   memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, msg, DHCP_BUFFER_SIZE * sizeof(uint8_t));
   // fire
   int sent = 0;
@@ -266,9 +302,9 @@ void dhcp() {
   bzero(&msg, DHCP_BUFFER_SIZE);
   struct sockaddr_ll interface;
   // setup interface, see "man packet"
-  bzero(&interface, sizeof(interface));
+  bzero(&interface, sizeof(struct sockaddr_ll));
   // get interface index
-  if((interface.sll_ifindex = if_nametoindex(p->interface.c_str())) == 0){
+  if((interface.sll_ifindex = if_nametoindex(p->interface)) == 0){
     err("if_nametoindex failed, wrong network interface name ?", ERR, 0);
   }
   interface.sll_family = AF_PACKET;   // setup interface, see "man packet"
@@ -280,11 +316,10 @@ void dhcp() {
   {
     switch (msg[242]) {
       case (int) DHCP_DISCOVER:
-        printf("DISCOVER\n");
-        offer(msg);
+        send(msg, DHCP_OFFER);
         break;
       case (int) DHCP_REQUEST:
-        //send_ack(msg);
+        send(msg, DHCP_ACK);
         break;
       // case (int) DHCP_RELEASE:
       //   release(msg);
@@ -300,23 +335,23 @@ void dhcp() {
 void get_interface_info(){
   // determine device mac adress required fo L2 header
   struct ifreq ifr;
-  bzero(&ifr, sizeof(ifr));
-  memcpy(ifr.ifr_name, p->interface.c_str(), strlen(p->interface.c_str()));
+  bzero(&ifr, sizeof(struct ifreq));
+  printf("%s\n",p->interface );
+  memcpy(ifr.ifr_name, p->interface, strlen(p->interface));
   // get MAC address
   if(ioctl(send_socket, SIOCGIFHWADDR, &ifr) < 0){
     err("ioctl failed, cannot determine interface's MAC address", ERR, 0);
   }
+  memcpy(p->int_mac_address, ifr.ifr_hwaddr.sa_data, 6 * sizeof(uint8_t));
   // same for device ip address for L3 header - ip address
   if(ioctl(send_socket, SIOCGIFADDR, &ifr) < 0){
     err("ioctl failed, cannot determine interface's IP address", ERR, 0);
   }
+  p->int_ip_address = str_to_ip(inet_ntoa((((struct sockaddr_in *)&(ifr.ifr_addr))->sin_addr)));
   // get network mask
   if (ioctl(send_socket, SIOCGIFNETMASK, &ifr) < 0){
     err("ioctl failed, cannot determine interface's network mask", ERR, 0);
   }
-  // collect the information for future use
-  memcpy(p->int_mac_address, ifr.ifr_hwaddr.sa_data, 6 * sizeof(uint8_t));
-  p->int_ip_address = str_to_ip(inet_ntoa((((struct sockaddr_in *)&(ifr.ifr_addr))->sin_addr)));
   p->int_ip_netmask = str_to_ip(inet_ntoa((((struct sockaddr_in *)&(ifr.ifr_netmask))->sin_addr)));
 }
 
@@ -327,7 +362,7 @@ void server_start() {
     err ("Failed to create SOCK_DGRAM", listen_socket, 0);
   }
   struct sockaddr_in srv;
-  bzero(&srv, sizeof(srv));
+  bzero(&srv, sizeof(struct sockaddr_in));
   srv.sin_family = AF_INET;
   srv.sin_addr.s_addr = INADDR_ANY;     // dont care
   srv.sin_port = htons(DHCP_SRC_PORT);  // 67
@@ -345,17 +380,20 @@ void server_start() {
   dhcp();
 }
 
-void cleanup() {
-  if (p)              free(p);
-  if (send_socket)    close(send_socket);
-  if (listen_socket)  close(send_socket);
+void cleanup(int sig) {
+  if (p->interface != NULL)     free(p->interface);
+  if (p->domain != NULL)        free(p->domain);
+  if (p != NULL)                free(p);
+  if (send_socket)              close(send_socket);
+  if (listen_socket)            close(listen_socket);
+  signal(sig, SIG_IGN);
+  exit(EXIT_SUCCESS);
 }
 
 int main(int argc, char **argv) {
-  p = check_args(argc, argv);
+  signal(SIGINT, cleanup);
+  check_args(argc, argv);
   srand(time(NULL));
   server_start();
-  // TO DO sighandler
-  cleanup();
   return 0;
 }

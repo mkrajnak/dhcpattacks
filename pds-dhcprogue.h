@@ -58,7 +58,9 @@ const int DHCP_INFORM	 = 8;
 #define ETH_HEADER_LEN 14
 #define IP4_HEADER_LEN 20
 #define UDP_HEADER_LEN 8
-#define MAC_ADDR_LEN 6
+
+#define MAC_ADDR_LEN 6  // 6 octets
+#define IP_ADDR_LEN 4  // 4 octets
 
 const char * IP4_BROADCAST = "255.255.255.255";
 
@@ -69,7 +71,7 @@ struct pool_item{
 }pool_item;
 
 struct ip_pool{
-  string interface;
+  char* interface;
   uint32_t int_ip_address;
   uint32_t int_ip_netmask;
   uint8_t int_mac_address[MAC_ADDR_LEN];
@@ -78,8 +80,8 @@ struct ip_pool{
   uint32_t ip_next;
   uint32_t ip_gateway;
   uint32_t ip_dns;
-  string domain;
-  string lease_time;
+  char* domain;
+  int lease_time;
   vector <uint32_t> ip_pool;
   vector <struct pool_item> leased_list;
 }ip_pool;
@@ -88,4 +90,5 @@ struct ip_pool{
 int send_socket = 0;
 int listen_socket = 0;
 struct ip_pool* p;
+
 #endif
