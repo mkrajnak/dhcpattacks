@@ -1,7 +1,8 @@
 #include "pds-dhcpstarve.h"
 
 void help(){
-  printf("HELP\n");
+  printf("DHCP starvation utility by Martin Krajnak <xkrajn02@stud.fit.vutbr.cz>:\n"
+        "Usage:\t  sudo ./pds-dhcstarve -i <interfaceName>\n");
 }
 
 /**

@@ -1,7 +1,14 @@
 #include "pds-dhcprogue.h"
 
 void help(){
-  printf("HELP\n");
+  printf("Rogue DHCP server implemented by Martin Krajnak <xkrajn02@stud.fit.vutbr.cz>:\n"
+        "Usage:\t  sudo ./pds-dhcprogue -p 192.168.10.1-192.168.10.10 -i wlp0s20u1u3 -g 1.1.1.1 -n 1.1.1.1 -d domain -l 3600\n"
+        "\t -p <firstIP-lastIP> range of ip addreses to lease separated by -\n"
+        "\t -i <interfaceName> obtainable by shell command \"ip address\"\n"
+        "\t -g <1.1.1.1> gateway ip address, it will be passed via option to clients\n"
+        "\t -n <1.1.1.1> DNS server ip address, it will be passed via option to clients\n"
+        "\t -d <domainName> domain name, it will be passed via option to clients\n"
+        "\t -l <leaseTime> number value in seconds eg. one hour - 3600\n");
 }
 
 /**
@@ -130,6 +137,9 @@ void check_args(int argc, char **argv){
         break;
       case 'l':
         p->lease_time = get_num(optarg);
+        break;
+      case '?':
+        help();
         break;
       default:
         break;
