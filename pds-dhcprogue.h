@@ -67,7 +67,7 @@ const char * IP4_BROADCAST = "255.255.255.255";
 struct pool_item{
   uint8_t mac_addr[MAC_ADDR_LEN];
   uint32_t ip_addr;
-  time_t lease_expiration;
+  time_t lease_expr;
 }pool_item;
 
 struct ip_pool{
@@ -81,7 +81,7 @@ struct ip_pool{
   uint32_t ip_gateway;
   uint32_t ip_dns;
   char* domain;
-  int lease_time;
+  uint32_t lease_time;
   vector <uint32_t> ip_pool;
   vector <struct pool_item> leased_list;
 }ip_pool;

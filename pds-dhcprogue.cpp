@@ -88,6 +88,17 @@ void parse_pool(char* arg) {
   fill_range(p);
 }
 
+
+int get_num(char *arg) {
+   	char *white = NULL;
+   	int n = (int) strtod(arg, &white);
+   	if(strlen(white) != 0) {
+      fprintf(stderr,"failed to parse lease time, unexpected input \"%s\"\n",white);
+     	err("", ERR, 1);
+   	}
+   	return n;
+}
+
 void check_args(int argc, char **argv){
   p = (struct ip_pool*) malloc(sizeof(struct ip_pool));
   check_null(p);
@@ -118,7 +129,7 @@ void check_args(int argc, char **argv){
         strcpy(p->domain, optarg);
         break;
       case 'l':
-        p->lease_time = 0; // (string(optarg));
+        p->lease_time = get_num(optarg);
         break;
       default:
         break;
@@ -183,7 +194,7 @@ struct ip* get_ip_header(uint32_t ip_dest){
   return hdr;
 }
 
-uint32_t lease_ip(uint8_t* dst_mac_addr){
+uint32_t lease_ip(uint8_t* dst_mac_addr, int discover){
   if (p->ip_next == 0) {
     fprintf(stderr, "%s\n","Empty pool, cannot perform lease");
     return 0;
@@ -191,36 +202,50 @@ uint32_t lease_ip(uint8_t* dst_mac_addr){
   struct pool_item item;   // write to lease list
   memcpy(item.mac_addr, dst_mac_addr, MAC_ADDR_LEN);
   item.ip_addr = p->ip_next;
-  // TODO item.lease_end = mktime(timeinfo);
-  p->leased_list.insert(p->leased_list.begin(), item);
 
-  // Remove taken address and prepare nectone
-  p->ip_pool.erase(find(p->ip_pool.begin(), p->ip_pool.end(), p->ip_next));
-  // Check if ot is the last available address
-  if (p->ip_pool.empty())
-    p->ip_next = 0;
+  if (discover)
+    item.lease_expr = time(0) + 5; // discover flood prevention
   else
-    p->ip_next = p->ip_pool.front();
+    item.lease_expr = time(0) + p->lease_time; // normal lease after request
+  // Item complete, store it
+  p->leased_list.insert(p->leased_list.begin(), item);
+  // Remove taken address
+  p->ip_pool.erase(find(p->ip_pool.begin(), p->ip_pool.end(), p->ip_next));
+  // Prepare next
+  if (p->ip_pool.empty())
+    p->ip_next = 0;                   // pool is out of addresses
+  else
+    p->ip_next = p->ip_pool.front();  // assign next available
   printf("Leasing: %s\n", ip_to_str(item.ip_addr));
   return item.ip_addr;
 }
 
 uint32_t get_client_ip(uint8_t *dst_mac_addr, int extend){
   if (p->leased_list.empty()) {
-    return lease_ip(dst_mac_addr);
+    return lease_ip(dst_mac_addr, 0);
   }
   vector<struct pool_item>::iterator it;
   for (it = p->leased_list.begin(); it != p->leased_list.end(); ++it){
     if (memcmp(it->mac_addr, dst_mac_addr, MAC_ADDR_LEN*sizeof(uint8_t)) == 0){
-    printf("Acking: %s\n", ip_to_str(it->ip_addr));
-    if (extend) {
-      // time_t now = time(0);
-      // time_t now_plus_50_seconds = now + 50;
-    }
-    return it->ip_addr;
+      if (extend)
+        it->lease_expr = time(0) + p->lease_time;
+      return it->ip_addr;
     }
   }
-  return lease_ip(dst_mac_addr); // not found
+  return lease_ip(dst_mac_addr, 0); // not found
+}
+
+void expiration_check(){
+  if (p->leased_list.empty()){
+    return;
+  }
+  vector<struct pool_item>::iterator it;
+  for (it = p->leased_list.begin(); it != p->leased_list.end(); ++it){
+    if ((difftime(time(0), it->lease_expr)) > 0) {
+      p->ip_pool.push_back(it->ip_addr);
+      it = p->leased_list.erase(it);
+    }
+  }
 }
 
 void make_dhcp_reply(unsigned char* msg, uint32_t client_ip, const int msg_type){
@@ -233,10 +258,8 @@ void make_dhcp_reply(unsigned char* msg, uint32_t client_ip, const int msg_type)
   msg[242] = (int) msg_type;       // OFFER or ACK
   msg[243] = (int) 51;             // lease time
   msg[244] = (int) 4;
-  msg[245] = (int) 0;
-  msg[246] = (int) 0;
-  msg[247] = (int) 0x0e;
-  msg[248] = (int) 0x10;
+  uint32_t t = htonl(p->lease_time);
+  memcpy(&msg[245], &t, sizeof(uint32_t));
   msg[249] = (int) 54;              // next server ip
   msg[250] = (int) 4;
   memcpy(&msg[251], &p->ip_gateway, IP_ADDR_LEN);
@@ -277,7 +300,7 @@ void send(unsigned char *msg, const int msg_type){
   // L2 ends here ^ Add IP (L3) and UDP (L4) headers next...
   uint32_t client_ip_addr = 0;
   if(msg_type == DHCP_OFFER)
-    client_ip_addr = lease_ip(dst_mac_addr); // make an actual lease
+    client_ip_addr = lease_ip(dst_mac_addr, 1); // make an actual lease
   else
     client_ip_addr = get_client_ip(dst_mac_addr, 0);
 
@@ -314,6 +337,7 @@ void dhcp() {
   int rcvd = 0; // receive data and decive what to do
   while((rcvd = recvfrom(listen_socket, msg, DHCP_BUFFER_SIZE, 0, (struct sockaddr *)&interface, &length)) >= 0)
   {
+    expiration_check();
     switch (msg[242]) {
       case (int) DHCP_DISCOVER:
         send(msg, DHCP_OFFER);
