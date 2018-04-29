@@ -36,7 +36,6 @@ using namespace std;
 const char* IP4_SRC_ADDR = "0.0.0.0";
 const char* IP4_BROADCAST = "255.255.255.255";
 
-int send_socket = 0;
-int listen_socket = 0;
+int sd = 0;
 
 #endif //UNTITLED1_PDS_DHCPSTARVE_H
